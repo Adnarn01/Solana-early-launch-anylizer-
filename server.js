@@ -46,9 +46,10 @@ app.get("/test-telegram", async (req, res) => {
     console.error(error.response?.data || error.message);
 
     res.status(500).json({
-      success: false,
-      message: "Telegram alert failed"
-    });
+  success: false,
+  message: "Telegram alert failed",
+  telegram_error: error.response?.data || error.message
+});
   }
 });
 

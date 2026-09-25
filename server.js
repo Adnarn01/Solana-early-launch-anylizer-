@@ -773,10 +773,26 @@ app.get("/analyze", async (req, res) => {
 
     const result =
       await analyzeToken(mint);
-
-
+if (!analysis.found) {
+  console.log("Token skipped:", mint);
+  continue;
+}
+const qualifies =
+  analysis.conditions.earlyLaunch &&
+  analysis.conditions.mcInRange &&
+  analysis.conditions.liquidityHealthy &&
+  analysis.conditions.strongVolume &&
+  analysis.conditions.buyPressure &&
+  analysis.conditions.holderTarget &&
+  analysis.conditions.top10Healthy;
     if (!result.found) {
-
+if (!qualifies) {
+  console.log(
+    "Token did not meet alert criteria:",
+    mint
+  );
+  continue;
+}
       return res.json({
 
         success: false,
@@ -916,7 +932,17 @@ app.post(
           await sendTelegram(
             formatAlert(analysis)
           );
+if (!qualifies) {
+  console.log(
+    "Token did not meet alert criteria:",
+    mint
+  );
+  continue;
+}
 
+await sendTelegram(
+  formatAlert(analysis)
+);
 
           console.log(
             "Analysis alert sent:",

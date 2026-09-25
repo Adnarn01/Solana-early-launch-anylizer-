@@ -135,6 +135,51 @@ async function getDexData(mint) {
 
   const response = await axios.get(url);
 
+  const pairs = Array.isArray(response.data)
+    ? response.data
+    : [];
+
+  if (!pairs.length) {
+    return null;
+  }
+
+  // Remove pools with no usable liquidity
+  const validPairs = pairs.filter(pair => {
+    const liquidity = Number(pair.liquidity?.usd || 0);
+    return liquidity > 0;
+  });
+
+  if (!validPairs.length) {
+    console.log("No pool with valid liquidity:", mint);
+    return null;
+  }
+
+  // Choose the pool with the highest real liquidity
+  validPairs.sort((a, b) => {
+    const liquidityA =
+      Number(a.liquidity?.usd || 0);
+
+    const liquidityB =
+      Number(b.liquidity?.usd || 0);
+
+    return liquidityB - liquidityA;
+  });
+
+  const bestPair = validPairs[0];
+
+  console.log("Selected pool:", {
+    dex: bestPair.dexId,
+    pair: bestPair.pairAddress,
+    liquidity: bestPair.liquidity?.usd
+  });
+
+  return bestPair;
+}
+  const url =
+    `https://api.dexscreener.com/token-pairs/v1/solana/${mint}`;
+
+  const response = await axios.get(url);
+
   const pairs = response.data || [];
 
   if (!pairs.length) {

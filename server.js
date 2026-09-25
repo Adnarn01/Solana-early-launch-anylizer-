@@ -202,13 +202,12 @@ async function getDexData(mint) {
 // ANALYSIS ENGINE
 // ===============================
 
-async function analyzeToken(mint) {
-
-  const [asset, dex, security] = await Promise.all([
+const [asset, dex, security, holderData] = await Promise.all([
     getHeliusAsset(mint),
     getDexData(mint),
-    getMintSecurity(mint)
-  ]);
+    getMintSecurity(mint),
+    getHolderData(mint)
+]);
 
   if (!dex) {
     return {
@@ -329,7 +328,9 @@ async function analyzeToken(mint) {
     buySellRatio,
 
     mintAuthority: security.mintAuthority,
-    freezeAuthority: security.freezeAuthority,
+freezeAuthority: security.freezeAuthority,
+holders: holderData.holders,
+top10Percent: holderData.top10Percent,
 
     dex: dex.dexId || "Unknown",
     pairAddress: dex.pairAddress || "Unknown",

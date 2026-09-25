@@ -666,6 +666,28 @@ async function analyzeToken(mint) {
 
 
 // ===============================
+// STRICT ALERT FILTER
+// ===============================
+
+function qualifiesForAlert(analysis) {
+
+  if (!analysis || !analysis.found) {
+    return false;
+  }
+
+  return (
+    analysis.conditions.earlyLaunch &&
+    analysis.conditions.mcInRange &&
+    analysis.conditions.liquidityHealthy &&
+    analysis.conditions.strongVolume &&
+    analysis.conditions.buyPressure &&
+    analysis.conditions.holderTarget &&
+    analysis.conditions.top10Healthy
+  );
+}
+
+
+// ===============================
 // FORMAT TELEGRAM ALERT
 // ===============================
 
@@ -773,26 +795,10 @@ app.get("/analyze", async (req, res) => {
 
     const result =
       await analyzeToken(mint);
-if (!analysis.found) {
-  console.log("Token skipped:", mint);
-  continue;
-}
-const qualifies =
-  analysis.conditions.earlyLaunch &&
-  analysis.conditions.mcInRange &&
-  analysis.conditions.liquidityHealthy &&
-  analysis.conditions.strongVolume &&
-  analysis.conditions.buyPressure &&
-  analysis.conditions.holderTarget &&
-  analysis.conditions.top10Healthy;
+
+
     if (!result.found) {
-if (!qualifies) {
-  console.log(
-    "Token did not meet alert criteria:",
-    mint
-  );
-  continue;
-}
+
       return res.json({
 
         success: false,
@@ -804,6 +810,9 @@ if (!qualifies) {
     }
 
 
+    // Manual analysis returns the
+    // analysis even if it does not
+    // qualify for Telegram alert.
     res.json({
 
       success: true,
@@ -873,7 +882,10 @@ app.post(
         }
 
 
-        // Duplicate protection
+        // ===============================
+        // DUPLICATE PROTECTION
+        // ===============================
+
         const lastSeen =
           seenMints.get(mint);
 
@@ -905,7 +917,10 @@ app.post(
         );
 
 
-        // Wait for market data
+        // ===============================
+        // WAIT FOR MARKET DATA
+        // ===============================
+
         await new Promise(
           resolve =>
             setTimeout(resolve, 5000)
@@ -929,20 +944,36 @@ app.post(
           }
 
 
+          // ===============================
+          // STRICT 7-CONDITION FILTER
+          // ===============================
+
+          const qualifies =
+            qualifiesForAlert(
+              analysis
+            );
+
+
+          if (!qualifies) {
+
+            console.log(
+              "Token did not meet alert criteria:",
+              mint
+            );
+
+            continue;
+          }
+
+
+          // ===============================
+          // SEND TELEGRAM ONLY IF
+          // ALL CONDITIONS ARE TRUE
+          // ===============================
+
           await sendTelegram(
             formatAlert(analysis)
           );
-if (!qualifies) {
-  console.log(
-    "Token did not meet alert criteria:",
-    mint
-  );
-  continue;
-}
 
-await sendTelegram(
-  formatAlert(analysis)
-);
 
           console.log(
             "Analysis alert sent:",

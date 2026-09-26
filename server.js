@@ -427,12 +427,21 @@ async function getDexData(mint) {
     const url =
       `https://api.dexscreener.com/token-pairs/v1/solana/${mint}`;
 
-    const response =
-      await axios.get(url, {
+    console.log("Calling DexScreener:", url);
 
-        timeout: 10000
+const response =
+  await axios.get(url, {
+    timeout: 5000,
+    headers: {
+      "User-Agent": "Solana-Early-Launch-Analyzer/1.0",
+      "Accept": "application/json"
+    }
+  });
 
-      });
+console.log(
+  "DexScreener response received:",
+  response.status
+);
 
     const pairs =
       Array.isArray(response.data)

@@ -59,30 +59,23 @@ const FILTERS = {
   solanaRequired: true,
   pumpRequired: true,
 
-  // Technical definition of a whale:
-  // wallet owns at least 1% of total supply.
   whaleMinSupplyPercent: 1
 };
 
 // ============================================================
-// QUEUE / DUPLICATE PROTECTION
+// QUEUE
 // ============================================================
 
 const seenMints = new Map();
-
-const DUPLICATE_WINDOW =
-  15 * 60 * 1000;
-
+const queuedMints = new Set();
 const analysisQueue = [];
 
-const queuedMints = new Set();
+const DUPLICATE_WINDOW = 15 * 60 * 1000;
 
 let activeAnalyses = 0;
 
 const MAX_CONCURRENT_ANALYSES = 2;
-
 const MAX_RETRIES = 10;
-
 const RETRY_DELAY = 5000;
 
 // ============================================================
@@ -104,7 +97,7 @@ const RUGCHECK_BASE =
   "https://api.rugcheck.xyz/v1";
 
 // ============================================================
-// BASIC HELPERS
+// HELPERS
 // ============================================================
 
 function sleep(ms) {
@@ -143,7 +136,7 @@ app.get("/", (req, res) => {
   res.json({
     status: "online",
     name: "Solana Early Launch Analyzer",
-    version: "6.0"
+    version: "7.0"
   });
 });
 
@@ -154,6 +147,45 @@ app.get("/health", (req, res) => {
     queue: analysisQueue.length,
     activeAnalyses
   });
+});
+
+// ============================================================
+// HELIUS STATUS
+// ============================================================
+
+app.get("/helius-status", async (req, res) => {
+  try {
+    if (!HELIUS_API_KEY) {
+      return res.status(500).json({
+        success: false,
+        heliusConfigured: false,
+        rpcWorking: false,
+        message: "HELIUS_API_KEY is missing"
+      });
+    }
+
+    const result = await heliusRpc(
+      "getSlot",
+      [],
+      "helius-status"
+    );
+
+    return res.json({
+      success: true,
+      heliusConfigured: true,
+      rpcWorking: true,
+      slot: result
+    });
+  } catch (error) {
+    return res.status(500).json({
+      success: false,
+      heliusConfigured: Boolean(HELIUS_API_KEY),
+      rpcWorking: false,
+      error:
+        error.response?.data ||
+        error.message
+    });
+  }
 });
 
 // ============================================================
@@ -193,6 +225,24 @@ async function sendTelegram(message) {
 
   return response.data;
 }
+
+app.get("/test-telegram", async (req, res) => {
+  try {
+    await sendTelegram(
+      "✅ Solana Early Launch Analyzer Telegram test successful."
+    );
+
+    res.json({
+      success: true,
+      message: "Telegram message sent"
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message
+    });
+  }
+});
 
 // ============================================================
 // HELIUS RPC
@@ -237,13 +287,12 @@ async function heliusRpc(
 
     return response.data?.result;
   } catch (error) {
-    const details =
-      error.response?.data ||
-      error.message;
-
     console.error(
       `Helius RPC ${method} error:`,
-      safeJson(details)
+      safeJson(
+        error.response?.data ||
+        error.message
+      )
     );
 
     throw error;
@@ -256,19 +305,16 @@ async function heliusRpc(
 
 async function getHeliusAsset(mint) {
   try {
-    const result = await heliusRpc(
+    return await heliusRpc(
       "getAsset",
       {
         id: mint,
-
         displayOptions: {
           showFungible: true
         }
       },
       "get-asset"
     );
-
-    return result || null;
   } catch (error) {
     console.error(
       "Helius asset error:",
@@ -346,11 +392,10 @@ async function getRugCheckReport(mint) {
       `${RUGCHECK_BASE}/tokens/${mint}/report`,
       {
         timeout: 15000,
-
         headers: {
           Accept: "application/json",
           "User-Agent":
-            "Solana-Early-Launch-Analyzer/6.0"
+            "Solana-Early-Launch-Analyzer/7.0"
         }
       }
     );
@@ -363,19 +408,12 @@ async function getRugCheckReport(mint) {
         error.message
     );
 
-    if (error.response?.data) {
-      console.error(
-        "RugCheck response:",
-        safeJson(error.response.data)
-      );
-    }
-
     return null;
   }
 }
 
 // ============================================================
-// DEXSCREENER MARKET DATA
+// DEXSCREENER
 // ============================================================
 
 async function getDexData(mint) {
@@ -384,11 +422,10 @@ async function getDexData(mint) {
       `${DEXSCREENER_BASE}/token-pairs/v1/solana/${mint}`,
       {
         timeout: 10000,
-
         headers: {
           Accept: "application/json",
           "User-Agent":
-            "Solana-Early-Launch-Analyzer/6.0"
+            "Solana-Early-Launch-Analyzer/7.0"
         }
       }
     );
@@ -412,8 +449,6 @@ async function getDexData(mint) {
       return null;
     }
 
-    // Select the pair with the highest
-    // available liquidity.
     validPairs.sort(
       (a, b) =>
         number(
@@ -437,7 +472,7 @@ async function getDexData(mint) {
 }
 
 // ============================================================
-// PAID DEX CHECK
+// PAID DEX
 // ============================================================
 
 async function getPaidDexStatus(mint) {
@@ -446,11 +481,10 @@ async function getPaidDexStatus(mint) {
       `${DEXSCREENER_BASE}/orders/v1/solana/${mint}`,
       {
         timeout: 10000,
-
         headers: {
           Accept: "application/json",
           "User-Agent":
-            "Solana-Early-Launch-Analyzer/6.0"
+            "Solana-Early-Launch-Analyzer/7.0"
         }
       }
     );
@@ -467,7 +501,9 @@ async function getPaidDexStatus(mint) {
     const paid =
       orders.some(
         order =>
-          order?.status ===
+          String(
+            order?.status || ""
+          ).toLowerCase() ===
           "approved"
       );
 
@@ -524,8 +560,7 @@ async function getUniqueTraders(
     const startSeconds =
       Math.max(
         createdSeconds,
-        nowSeconds -
-          15 * 60
+        nowSeconds - 15 * 60
       );
 
     const url =
@@ -534,25 +569,18 @@ async function getUniqueTraders(
     const response =
       await axios.get(url, {
         timeout: 15000,
-
         params: {
           "api-key":
             HELIUS_API_KEY,
-
           limit: 100,
-
           type: "SWAP",
-
           "gte-time":
             startSeconds
         },
-
         headers: {
-          Accept:
-            "application/json",
-
+          Accept: "application/json",
           "User-Agent":
-            "Solana-Early-Launch-Analyzer/6.0"
+            "Solana-Early-Launch-Analyzer/7.0"
         }
       });
 
@@ -570,28 +598,22 @@ async function getUniqueTraders(
       const tx of transactions
     ) {
       const timestamp =
-        number(
-          tx?.timestamp
-        );
+        number(tx?.timestamp);
 
       if (
         timestamp &&
-        timestamp <
-          startSeconds
+        timestamp < startSeconds
       ) {
         continue;
       }
 
       if (
-        tx?.type !==
-        "SWAP"
+        tx?.type !== "SWAP"
       ) {
         continue;
       }
 
-      if (
-        tx?.feePayer
-      ) {
+      if (tx?.feePayer) {
         traders.add(
           tx.feePayer
         );
@@ -599,9 +621,7 @@ async function getUniqueTraders(
     }
 
     return {
-      traders:
-        traders.size,
-
+      traders: traders.size,
       traderWallets:
         [...traders]
     };
@@ -661,10 +681,6 @@ async function analyzeToken(
     };
   }
 
-  // ==========================================================
-  // MARKET
-  // ==========================================================
-
   const marketCap =
     number(
       firstDefined(
@@ -692,10 +708,6 @@ async function analyzeToken(
         ) / 60000
       : null;
 
-  // ==========================================================
-  // SUPPLY
-  // ==========================================================
-
   const tokenInfo =
     rug.token || {};
 
@@ -718,10 +730,6 @@ async function analyzeToken(
       decimals
     );
 
-  // ==========================================================
-  // TOP HOLDERS
-  // ==========================================================
-
   const topHolders =
     Array.isArray(
       rug.topHolders
@@ -735,28 +743,16 @@ async function analyzeToken(
       .reduce(
         (sum, holder) =>
           sum +
-          number(
-            holder?.pct
-          ),
+          number(holder?.pct),
         0
       );
-
-  // ==========================================================
-  // WHALES
-  // ==========================================================
 
   const whales =
     topHolders.filter(
       holder =>
-        number(
-          holder?.pct
-        ) >=
+        number(holder?.pct) >=
         FILTERS.whaleMinSupplyPercent
     ).length;
-
-  // ==========================================================
-  // RISK
-  // ==========================================================
 
   const riskScore =
     number(
@@ -767,22 +763,14 @@ async function analyzeToken(
       -1
     );
 
-  // ==========================================================
-  // LP LOCK
-  // ==========================================================
-
   const lpLockedPct =
-    Array.isArray(
-      rug.markets
-    )
+    Array.isArray(rug.markets)
       ? Math.max(
           0,
-
           ...rug.markets.map(
             market =>
               number(
-                market?.lp
-                  ?.lpLockedPct
+                market?.lp?.lpLockedPct
               )
           )
         )
@@ -790,10 +778,6 @@ async function analyzeToken(
 
   const lpLocked =
     lpLockedPct >= 100;
-
-  // ==========================================================
-  // DEV SOLD
-  // ==========================================================
 
   const creatorBalanceRaw =
     number(
@@ -810,24 +794,15 @@ async function analyzeToken(
   const devSold =
     creatorBalance <= 0;
 
-  // ==========================================================
-  // PUMP.FUN
-  // ==========================================================
-
   const launchpadPlatform =
     String(
-      rug?.launchpad
-        ?.platform ||
-        ""
+      rug?.launchpad?.platform ||
+      ""
     ).toLowerCase();
 
   const pump =
     launchpadPlatform ===
     "pump_fun";
-
-  // ==========================================================
-  // UNIQUE TRADERS
-  // ==========================================================
 
   const tradersData =
     await getUniqueTraders(
@@ -838,29 +813,17 @@ async function analyzeToken(
   const traders =
     tradersData.traders;
 
-  // ==========================================================
-  // TOKEN NAME / SYMBOL
-  // ==========================================================
-
   const tokenName =
-    asset?.content
-      ?.metadata
-      ?.name ||
+    asset?.content?.metadata?.name ||
     dex?.baseToken?.name ||
     rug?.tokenMeta?.name ||
     "Unknown";
 
   const symbol =
-    asset?.content
-      ?.metadata
-      ?.symbol ||
+    asset?.content?.metadata?.symbol ||
     dex?.baseToken?.symbol ||
     rug?.tokenMeta?.symbol ||
     "UNKNOWN";
-
-  // ==========================================================
-  // EXACT CONDITIONS
-  // ==========================================================
 
   const conditions = {
     age:
@@ -929,8 +892,7 @@ async function analyzeToken(
 
     solana:
       FILTERS.solanaRequired
-        ? dex.chainId ===
-          "solana"
+        ? dex.chainId === "solana"
         : true,
 
     pump:
@@ -942,4 +904,486 @@ async function analyzeToken(
   const qualifies =
     Object.values(
       conditions
-   
+    ).every(Boolean);
+
+  return {
+    found: true,
+    qualifies,
+    mint,
+    name: tokenName,
+    symbol,
+    ageMinutes,
+    marketCap,
+    liquidity,
+    traders,
+    lpLocked,
+    lpLockedPct,
+    whales,
+    whaleThresholdPercent:
+      FILTERS.whaleMinSupplyPercent,
+    top10Percent,
+    supply,
+    riskScore,
+    devSold,
+    creatorBalance,
+    dexPaid:
+      paidDex.paid,
+    dex:
+      dex.dexId || "Unknown",
+    chain:
+      dex.chainId || "Unknown",
+    launchpad:
+      rug?.launchpad?.name ||
+      launchpadPlatform ||
+      "Unknown",
+    pairAddress:
+      dex.pairAddress ||
+      "Unknown",
+    mintAuthority:
+      security.mintAuthority,
+    freezeAuthority:
+      security.freezeAuthority,
+    conditions
+  };
+  }
+
+// ============================================================
+// TELEGRAM ALERT
+// ============================================================
+
+function formatAlert(data) {
+  const age =
+    data.ageMinutes !== null
+      ? `${data.ageMinutes.toFixed(1)}m`
+      : "Unknown";
+
+  return `
+🚨 PUMP EARLY LAUNCH MATCH
+
+🪙 ${data.name} (${data.symbol})
+
+Mint:
+${data.mint}
+
+⏱ AGE
+${age}
+
+💰 MARKET
+MC: $${data.marketCap.toLocaleString()}
+Liquidity: $${data.liquidity.toLocaleString()}
+
+👥 TRADERS
+${data.traders}
+
+🐋 WHALES
+${data.whales} (${data.whaleThresholdPercent}%+)
+
+📊 TOP 10
+${data.top10Percent.toFixed(1)}%
+
+🪙 SUPPLY
+${data.supply.toLocaleString()}
+
+⚠️ RISK SCORE
+${data.riskScore}/100
+
+🔒 LP
+${data.lpLocked ? "LOCKED" : "NOT LOCKED"}
+Locked: ${data.lpLockedPct.toFixed(1)}%
+
+👨‍💻 DEV
+${data.devSold ? "SOLD" : "NOT SOLD"}
+
+💳 DEX PAID
+${data.dexPaid ? "YES" : "NO"}
+
+🏦 DEX
+${data.dex}
+
+🚀 LAUNCH
+${data.launchpad}
+
+⛓ CHAIN
+${data.chain}
+
+🔐 MINT
+${data.mintAuthority}
+
+❄️ FREEZE
+${data.freezeAuthority}
+
+🔗 PAIR
+${data.pairAddress}
+`;
+}
+
+// ============================================================
+// ANALYSIS QUEUE
+// ============================================================
+
+function addToAnalysisQueue(mint) {
+  if (
+    !mint ||
+    queuedMints.has(mint)
+  ) {
+    return;
+  }
+
+  queuedMints.add(mint);
+
+  analysisQueue.push(mint);
+
+  console.log(
+    "Token added to analysis queue:",
+    mint
+  );
+
+  processAnalysisQueue();
+}
+
+async function processAnalysisQueue() {
+  if (
+    activeAnalyses >=
+    MAX_CONCURRENT_ANALYSES
+  ) {
+    return;
+  }
+
+  while (
+    activeAnalyses <
+      MAX_CONCURRENT_ANALYSES &&
+    analysisQueue.length > 0
+  ) {
+    const mint =
+      analysisQueue.shift();
+
+    queuedMints.delete(mint);
+
+    activeAnalyses++;
+
+    analyzeQueuedToken(mint)
+      .catch(error => {
+        console.error(
+          "Queue analysis error:",
+          error.message
+        );
+      })
+      .finally(() => {
+        activeAnalyses--;
+
+        setImmediate(
+          processAnalysisQueue
+        );
+      });
+  }
+}
+
+// ============================================================
+// ANALYZE QUEUED TOKEN
+// ============================================================
+
+async function analyzeQueuedToken(mint) {
+  console.log(
+    "Starting token analysis:",
+    mint
+  );
+
+  let dex = null;
+
+  for (
+    let attempt = 1;
+    attempt <= MAX_RETRIES;
+    attempt++
+  ) {
+    dex = await getDexData(mint);
+
+    if (dex) {
+      console.log(
+        `DEX data ready on attempt ${attempt}:`,
+        mint
+      );
+
+      break;
+    }
+
+    console.log(
+      `DEX data not ready (attempt ${attempt}/${MAX_RETRIES}):`,
+      mint
+    );
+
+    if (
+      attempt < MAX_RETRIES
+    ) {
+      await sleep(
+        RETRY_DELAY
+      );
+    }
+  }
+
+  if (!dex) {
+    console.log(
+      "No market data after retries:",
+      mint
+    );
+
+    return;
+  }
+
+  try {
+    const result =
+      await analyzeToken(
+        mint,
+        dex
+      );
+
+    if (!result?.found) {
+      console.log(
+        "Token analysis stopped:",
+        mint,
+        result?.reason ||
+          "Unknown reason"
+      );
+
+      return;
+    }
+
+    console.log(
+      "Analysis result:",
+      safeJson({
+        mint: result.mint,
+        name: result.name,
+        symbol: result.symbol,
+        qualifies:
+          result.qualifies,
+        conditions:
+          result.conditions
+      })
+    );
+
+    if (!result.qualifies) {
+      console.log(
+        "Token does not match all conditions:",
+        mint
+      );
+
+      return;
+    }
+
+    const message =
+      formatAlert(result);
+
+    await sendTelegram(
+      message
+    );
+
+    console.log(
+      "Telegram alert sent:",
+      mint
+    );
+  } catch (error) {
+    console.error(
+      "Token analysis failed:",
+      mint,
+      safeJson(
+        error.response?.data ||
+        error.message
+      )
+    );
+  }
+}
+
+// ============================================================
+// MANUAL ANALYZE ROUTE
+// ============================================================
+
+app.get(
+  "/analyze",
+  async (req, res) => {
+    const mint =
+      String(
+        req.query.mint || ""
+      ).trim();
+
+    if (!mint) {
+      return res.status(400).json({
+        success: false,
+        message:
+          "Missing ?mint=TOKEN_MINT"
+      });
+    }
+
+    try {
+      const result =
+        await analyzeToken(mint);
+
+      return res.json({
+        success: true,
+        result
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        error:
+          error.response?.data ||
+          error.message
+      });
+    }
+  }
+);
+
+// ============================================================
+// HELIUS WEBHOOK
+// ============================================================
+
+app.post(
+  "/webhook/helius",
+  async (req, res) => {
+    // Respond immediately so Helius
+    // does not wait for analysis.
+    res.status(200).json({
+      success: true
+    });
+
+    try {
+      const events =
+        Array.isArray(req.body)
+          ? req.body
+          : [req.body];
+
+      for (
+        const event of events
+      ) {
+        const tokenTransfers =
+          Array.isArray(
+            event?.tokenTransfers
+          )
+            ? event.tokenTransfers
+            : [];
+
+        const mints = [
+          ...new Set(
+            tokenTransfers
+              .map(
+                transfer =>
+                  transfer?.mint
+              )
+              .filter(Boolean)
+          )
+        ];
+
+        if (!mints.length) {
+          console.log(
+            "Helius event received without tokenTransfers"
+          );
+
+          continue;
+        }
+
+        for (
+          const mint of mints
+        ) {
+          const lastSeen =
+            seenMints.get(mint);
+
+          if (
+            lastSeen &&
+            Date.now() -
+              lastSeen <
+              DUPLICATE_WINDOW
+          ) {
+            console.log(
+              "Duplicate mint ignored:",
+              mint
+            );
+
+            continue;
+          }
+
+          seenMints.set(
+            mint,
+            Date.now()
+          );
+
+          console.log(
+            "New token candidate:",
+            mint
+          );
+
+          addToAnalysisQueue(
+            mint
+          );
+        }
+      }
+    } catch (error) {
+      console.error(
+        "Webhook processing error:",
+        safeJson(
+          error.response?.data ||
+          error.message
+        )
+      );
+    }
+  }
+);
+
+// ============================================================
+// CLEAN OLD MINTS
+// ============================================================
+
+setInterval(() => {
+  const now =
+    Date.now();
+
+  for (
+    const [
+      mint,
+      timestamp
+    ] of seenMints.entries()
+  ) {
+    if (
+      now - timestamp >
+      DUPLICATE_WINDOW
+    ) {
+      seenMints.delete(
+        mint
+      );
+    }
+  }
+}, 5 * 60 * 1000);
+
+// ============================================================
+// START SERVER
+// ============================================================
+
+app.listen(
+  PORT,
+  () => {
+    console.log(
+      `Server running on port ${PORT}`
+    );
+
+    console.log(
+      `Helius API key: ${
+        HELIUS_API_KEY
+          ? "CONFIGURED"
+          : "MISSING"
+      }`
+    );
+
+    console.log(
+      `Telegram bot: ${
+        TELEGRAM_BOT_TOKEN
+          ? "CONFIGURED"
+          : "MISSING"
+      }`
+    );
+
+    console.log(
+      `Telegram chat ID: ${
+        TELEGRAM_CHAT_ID
+          ? "CONFIGURED"
+          : "MISSING"
+      }`
+    );
+  }
+);

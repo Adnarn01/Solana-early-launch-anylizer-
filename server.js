@@ -54,8 +54,6 @@ const FILTERS = {
   riskMax: 55,
 
   lpLockedRequired: true,
-  devSoldRequired: true,
-  paidDexRequired: true,
   solanaRequired: true,
   pumpRequired: true,
 
@@ -880,16 +878,6 @@ async function analyzeToken(
       riskScore <=
         FILTERS.riskMax,
 
-    devSold:
-      FILTERS.devSoldRequired
-        ? devSold
-        : true,
-
-    dexPaid:
-      FILTERS.paidDexRequired
-        ? paidDex.paid
-        : true,
-
     solana:
       FILTERS.solanaRequired
         ? dex.chainId === "solana"
@@ -945,7 +933,7 @@ async function analyzeToken(
       security.freezeAuthority,
     conditions
   };
-  }
+}
 
 // ============================================================
 // TELEGRAM ALERT

@@ -146,7 +146,14 @@ app.get("/health", (req, res) => {
     activeAnalyses
   });
 });
-
+app.get("/telegram-status", (req, res) => {
+  res.json({
+    tokenConfigured: Boolean(TELEGRAM_BOT_TOKEN),
+    chatIdConfigured: Boolean(TELEGRAM_CHAT_ID),
+    tokenLength: TELEGRAM_BOT_TOKEN.length,
+    chatIdLength: TELEGRAM_CHAT_ID.length
+  });
+});
 // ============================================================
 // HELIUS STATUS
 // ============================================================
